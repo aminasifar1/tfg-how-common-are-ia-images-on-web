@@ -9,7 +9,7 @@ The [SPAI model](https://github.com/mever-team/spai) (Karageorgiou et al., CVPR 
 
 ## Datasets
 
-The collected image datasets are hosted on [Hugging Face](https://huggingface.co/datasets/aminasifar1/tfg-web-images):
+The collected image datasets are hosted on [Hugging Face](https://huggingface.co/datasets/aminasifar1/tfg-web-images/tree/main):
 
 | File | Description |
 |------|-------------|
