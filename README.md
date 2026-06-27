@@ -1,286 +1,445 @@
-# How Common Are AI-Generated Images on the Web?
-
 **TFG en Enginyeria de Dades -- Universitat Autonoma de Barcelona (UAB), 2025/26**
 
-Amina Aasifar El Ouahabi  
-Supervised by Alexandra Gomez Villa (Computer Vision Center)
+# How Common Are AI-Generated Images on the Web?
 
-This repository contains all the code and data for the study of AI-generated
-image prevalence across publicly accessible websites. It includes an automated
-web image scraper, a Wayback Machine historical scraper, the SPAI spectral
-classifier, and the resulting dataset of 4,520 classified images from 25
-websites across five sectors: news and media, art and illustration, education,
-e-commerce, and tourism and travel.
+Amina Aasifar El Ouahabi
+---
 
-Key findings: a global AI rate of 19.2%, led by the news and media sector at
-24.7%, with a pronounced concentration in article content zones (28.6%) and a
-temporal adoption peak around 2022.
+## Context
 
-## Project Structure
+This project studies the prevalence of AI-generated images across publicly accessible websites. It combines an automated web scraper, a Wayback Machine historical scraper, and the SPAI spectral classifier to collect and classify images from 25 websites across five sectors: news, arts and illustration, education, e-commerce, and tourism.
 
-```text
-spai-hf/
-├── README.md
-├── requirements.txt
-│
-├── configs/
-│   └── spai.yaml                       # SPAI model configuration
-│
-├── spai/                               # SPAI model package (CVPR 2025)
-│   ├── data/                           # Dataset loaders, augmentations, LMDB
-│   ├── models/                         # SID, MFM, Swin/ViT backbones, losses
-│   ├── tools/                          # Dataset CSV generators
-│   ├── weights/spai.pth                # Trained checkpoint
-│   └── ...
-│
-├── scraping/                           # Image collection (Sections 4.2, 4.4)
-│   ├── advanced_image_scraper.py       # Main web crawler
-│   ├── wayback_machine.py              # Wayback Machine scraper
-│   ├── batch_scraper.py                # Batch orchestrator
-│   ├── run_csv_full_scrape.py          # Batch scraping launcher
-│   ├── run_wayback_full_scrape.py      # Wayback scraping launcher
-│   ├── extract_article_content_images.py
-│   ├── create_ai_images_folder.py
-│   ├── run_scraper.sh                  # SLURM job scripts
-│   ├── run_scraper_websites_list.sh
-│   ├── run_wayback_scraper.sh
-│   └── requirements_scraper.txt
-│
-├── classification/                     # AI image classification (Section 4.3)
-│   ├── inference.py                    # SPAI EndpointHandler
-│   ├── infer_web_classifier.py         # Batch web image classifier
-│   ├── infer_hf_dataset.py             # GenAI-Bench evaluation
-│   ├── eval_balanced_thresholds.py     # Threshold selection (Appendix A)
-│   ├── run_classify_wayback_years.sh   # SLURM: wayback classification
-│   ├── run_classify_websites_execution.sh
-│   ├── run_full_classification_pipeline.sh
-│   └── run_hf_ai_vs_real_200_live.sh   # Mixed-data validation (200 imgs)
-│
-├── analysis/                           # Statistical analysis (Sections 5, 6)
-│   ├── analyze_zone_vs_ai.py           # Hypothesis H1: page zones
-│   ├── analyze_format_vs_ai.py         # Format vs AI rate
-│   ├── combine_wayback_results.py      # Temporal analysis (Section 5.5)
-│   ├── combine_wayback_manifests.py    # Temporal data combination
-│   ├── categorize_article_content_images.py  # Content type analysis (Fig 13)
-│   └── cross_reference_article_content_predictions.py
-│
-├── tools/                              # Execution and plotting utilities
-│   ├── classify_crawl_complete.py      # Main classification execution
-│   ├── classify_wayback_years.py       # Wayback classification by year
-│   ├── classify_websites_execution.py  # Per-website classification
-│   ├── classify_news_from_crawl.py     # News image classification
-│   ├── analyze_crawl_results.py        # Results summary statistics
-│   ├── plot_results_metrics.py         # Generates paper figures
-│   ├── plot_style.py                   # Shared matplotlib style
-│   ├── merge_genaibench_and_local.py   # Merges benchmark datasets
-│   ├── model_analysis_graphs.py        # Model performance graphs
-│   └── generate_existing_results_figures.py
-│
-├── tests/                              # Unit tests for SPAI
-│   ├── data/
-│   └── models/
-│
-├── data/                               # Input: website lists
-│   ├── websites-list.csv               # 25 websites, 5 sectors
-│   └── websites-news-arts.csv          # Subset for Wayback Machine
-│
-├── results/                            # Output: dataset and results
-│   ├── batch_scrape_results/           # Scraped images (~4,500 images)
-│   ├── classification_results/         # Per-image SPAI predictions (CSVs)
-│   ├── wayback_images_by_year/         # Wayback Machine images (2020-2025)
-│   ├── article_content_images/         # Article body images
-│   ├── balanced_eval/                  # Threshold evaluation data
-│   ├── results_plots/                  # Generated figures
-│   ├── results.csv                     # All classification results
-│   └── results.jsonl                   # Same in JSONL format
-│
-└── docs/
-    └── PIPELINE_STEPS.md               # Pipeline documentation
-```
+The [SPAI model](https://github.com/mever-team/spai) (Karageorgiou et al., CVPR 2025) is a spectral learning classifier that assigns each image a score between 0 (real) and 1 (AI-generated), using a threshold of **0.35**.
 
-## Methodology Overview
+## Datasets
 
-The project follows a four-stage pipeline, each corresponding to a section of
-the paper:
-
-### 1. Website Selection (Section 4.1)
-
-25 websites were selected across five sectors. The full list is in
-`data/websites-list.csv` with columns: `url`, `sector`, `subsector`,
-`organization_name`.
-
-### 2. Image Collection (Sections 4.2, 4.4)
-
-Images were collected using `scraping/advanced_image_scraper.py`, which
-combines BeautifulSoup for static content and Playwright for JS-rendered pages.
-The crawler extracts images from HTML tags, CSS background properties, and
-semantic meta tags.
-
-Filtering: duplicates removed via content + perceptual hashing, images below
-100x100px or 5KB excluded, only JPEG/PNG/WebP retained.
-
-For the temporal analysis, `scraping/wayback_machine.py` collects archived
-snapshots from the Wayback Machine (2020-2025) using the CDX API.
-
-**Run scraping:**
-```bash
-# Current websites
-python scraping/run_csv_full_scrape.py --csv data/websites-list.csv --output results/batch_scrape_results/
-
-# Wayback Machine (historical)
-python scraping/run_wayback_full_scrape.py --csv data/websites-news-arts.csv --output results/wayback_images_by_year/
-```
-
-### 3. Classification (Section 4.3)
-
-Images are classified using SPAI, a spectral learning classifier that assigns
-each image a score between 0 (real) and 1 (AI-generated). The operational
-threshold is **0.35**, selected through three evaluation stages (see Appendix A
-of the paper).
-
-**Run classification:**
-```bash
-# Single image
-python classification/inference.py --image "/path/to/image.jpg" --model-dir .
-
-# All scraped images
-python tools/classify_crawl_complete.py \
-    --crawl-dir results/batch_scrape_results/ \
-    --output-dir results/classification_results/ \
-    --model-dir . --threshold 0.35
-```
-
-### 4. Analysis (Sections 5, 6)
-
-- **Sector-level (Hc):** AI rate compared across five sectors using weighted rates
-- **Zone-level (H1):** `analysis/analyze_zone_vs_ai.py` -- chi-squared test on zone x class contingency table
-- **Temporal:** `analysis/combine_wayback_results.py` -- AI rate per year for news websites (2020-2025)
-- **Content type:** `analysis/categorize_article_content_images.py` -- breakdown by article content type (Fig 13)
-
-## File Descriptions
-
-### `scraping/` -- Image Collection
-
-| File | Paper ref | Description |
-|------|-----------|-------------|
-| `advanced_image_scraper.py` | Sec 4.2 | Main crawler: BeautifulSoup + Playwright, filters by size/format/zone, extracts metadata (HTML tag, parent, CSS class). |
-| `wayback_machine.py` | Sec 4.4 | Wayback Machine scraper: CDX API, collects archived snapshots by year (2020-2025), up to 50 images/website/year. |
-| `batch_scraper.py` | Sec 4.2 | Batch orchestrator: runs the crawler across all websites in a CSV list. |
-| `run_csv_full_scrape.py` | | Python launcher for a full batch scrape from CSV. |
-| `run_wayback_full_scrape.py` | | Python launcher for Wayback Machine scrape. |
-| `extract_article_content_images.py` | Sec 6.2 | Extracts images from article body content, filtering out navigation/ads/sidebars. |
-| `create_ai_images_folder.py` | | Collects all AI-classified images into a single folder, organized by website. |
-| `run_scraper.sh` | | SLURM job script for single-site scraping. |
-| `run_scraper_websites_list.sh` | | SLURM job script for batch scraping. |
-| `run_wayback_scraper.sh` | | SLURM job script for Wayback Machine scraping. |
-| `requirements_scraper.txt` | | Python dependencies for scraping (Playwright, BeautifulSoup, etc.). |
-
-### `classification/` -- SPAI Classification
-
-| File | Paper ref | Description |
-|------|-----------|-------------|
-| `inference.py` | Sec 4.3 | SPAI EndpointHandler: scores images 0-1, supports URL/path/base64/PIL input. |
-| `infer_web_classifier.py` | Sec 4.3 | Batch classifier for scraped web images, outputs per-image predictions with zone/site metadata. |
-| `infer_hf_dataset.py` | Sec 4.3 | Evaluates SPAI on Hugging Face datasets (GenAI-Bench, AI-vs-Real). |
-| `eval_balanced_thresholds.py` | App A | Evaluates thresholds on balanced datasets, produces accuracy curves and confusion matrices. |
-| `run_classify_wayback_years.sh` | Sec 4.4 | SLURM: classifies Wayback Machine images by year. |
-| `run_classify_websites_execution.sh` | | SLURM: classification pipeline per website. |
-| `run_full_classification_pipeline.sh` | | SLURM: end-to-end pipeline (crawl + classify + analyze). |
-| `run_hf_ai_vs_real_200_live.sh` | Sec 4.3 | SLURM: mixed-data validation (120 AI + 80 real, threshold = 0.35, accuracy = 82.5%). |
-
-### `analysis/` -- Statistical Analysis
-
-| File | Paper ref | Description |
-|------|-----------|-------------|
-| `analyze_zone_vs_ai.py` | Sec 5.4 | Tests H1: chi-squared test of independence on zone x class table, two-proportion test for Article content vs rest. |
-| `analyze_format_vs_ai.py` | | Analyzes AI rate by image format (JPEG, PNG, WebP). |
-| `combine_wayback_results.py` | Sec 5.5 | Aggregates temporal classification results into annual AI rates (Table 1, Fig 11). |
-| `combine_wayback_manifests.py` | Sec 5.5 | Combines Wayback Machine download manifests across sites and years. |
-| `categorize_article_content_images.py` | Sec 6.2 | Categorizes article images by content type: news, feature, blog, commercial (Fig 13). |
-| `cross_reference_article_content_predictions.py` | Sec 6.2 | Cross-references AI predictions with source article context. |
-
-### `tools/` -- Execution Utilities
+The collected image datasets are hosted on [Hugging Face](https://huggingface.co/datasets/aminasifar1/tfg-web-images):
 
 | File | Description |
 |------|-------------|
-| `classify_crawl_complete.py` | Runs SPAI on all images from a crawl directory, saves per-site CSVs. |
-| `classify_wayback_years.py` | Runs SPAI on Wayback Machine images organized by year. |
-| `classify_websites_execution.py` | Orchestrates classification across multiple websites. |
-| `classify_news_from_crawl.py` | Classifies only news-section images from a crawl. |
-| `analyze_crawl_results.py` | Generates summary statistics from classification CSVs. |
-| `plot_results_metrics.py` | Generates paper figures: score histograms, AI rate bars, confusion matrices. |
-| `plot_style.py` | Shared matplotlib styling for consistent figure appearance. |
-| `merge_genaibench_and_local.py` | Merges GenAI-Bench with locally scraped data for threshold evaluation. |
-| `model_analysis_graphs.py` | Model performance analysis graphs (accuracy by model, FN rates). |
-| `generate_existing_results_figures.py` | Regenerates all figures from existing result CSVs. |
+| `scrape_results_websites.tar.gz` | Images scraped from 25 websites across 5 sectors |
+| `wayback_results_news.tar.gz` | Historical images from 5 news websites via Wayback Machine (2020-2025) |
 
-### `data/` -- Input Data
+---
 
-| File | Paper ref | Description |
-|------|-----------|-------------|
-| `websites-list.csv` | Sec 4.1 | 25 websites across 5 sectors. Columns: `url`, `sector`, `subsector`, `organization_name`. |
-| `websites-news-arts.csv` | Sec 4.4 | News + art subset used for Wayback Machine temporal analysis. |
+## Project Structure
 
-### `results/` -- Dataset and Classification Results
+```
+tfg-how-common-are-ia-images-on-web/
+├── README.md
+├── requirements.txt
+├── configs/
+│   └── spai.yaml                          # SPAI model configuration (ViT backbone, freq masking)
+├── data/
+│   ├── websites-list.csv                  # 25 websites across 5 sectors
+│   └── websites-news.csv                  # 5 news-only websites (for Wayback Machine)
+├── spai/                                  # SPAI model package
+│   ├── models/                            # SID, MFM, Swin/ViT backbones, spectral filters
+│   ├── data/                              # Dataset loaders, augmentations
+│   ├── weights/spai.pth                   # Pre-trained checkpoint
+│   └── ...
+├── scraping/                              # Image collection tools
+│   ├── advanced_image_scraper.py          # Main web crawler (BS4 + Playwright)
+│   ├── wayback_machine.py                 # Wayback Machine CDX API scraper
+│   ├── batch_scraper.py                   # Batch orchestrator for CSV lists
+│   ├── run_wayback_full_scrape.py         # Batch orchestrator for Wayback Machine
+│   ├── run_scraper_websites_list.sh       # SLURM script: batch scraping
+│   └── run_wayback_scraper.sh             # SLURM script: wayback scraping
+├── classification/                        # AI image classification
+│   ├── inference.py                       # SPAI EndpointHandler (single image)
+│   ├── infer_web_classifier.py            # Batch web image classifier
+│   ├── infer_hf_dataset.py                # Evaluation on HF datasets
+│   ├── eval_balanced_thresholds.py        # Threshold selection
+│   ├── run_classify_wayback_years.sh      # SLURM: classify wayback images
+│   ├── run_classify_websites_execution.sh # SLURM: classify per website
+│   └── run_full_classification_pipeline.sh
+├── analysis/                              # Statistical analysis
+│   ├── analyze_zone_vs_ai.py              # Zone vs AI rate (chi-squared test)
+│   ├── analyze_format_vs_ai.py            # Format vs AI rate
+│   ├── combine_wayback_results.py         # Temporal AI rate aggregation
+│   └── categorize_article_content_images.py
+├── tools/                                 # Classification and plotting utilities
+│   ├── classify_crawl_complete.py         # Classify all images from a crawl
+│   ├── classify_wayback_years.py          # Classify wayback images by year
+│   ├── classify_websites_execution.py     # Per-website classification
+│   ├── plot_results_metrics.py            # Generate result figures
+│   └── ...
+└── tests/                                 # Unit tests for SPAI
+```
 
-| Directory / File | Paper ref | Description |
-|------------------|-----------|-------------|
-| `batch_scrape_results/` | Sec 4.2 | Raw scraped images organized by run date and website (~4,500 images). |
-| `classification_results/` | Sec 5 | Per-image SPAI predictions organized by website and page type. Each CSV contains: `score`, `predicted_label`, `is_ai`, `organization_name`, `sector`, `page_url`, `image_url`, `image_type`. |
-| `wayback_images_by_year/` | Sec 4.4 | Historical images from Wayback Machine snapshots (2020-2025). |
-| `article_content_images/` | Sec 6.2 | Images extracted from article body content zones. Subfolder `noticias_ia/` contains AI-related news article images. |
-| `balanced_eval/` | App A | Threshold evaluation: `genai_b120_scores.csv` (per-image scores from 6 generators), `genai_b120_thresholds_global.csv` (accuracy per threshold). |
-| `results_plots/` | | Generated figures: `score_histogram.png`, `confusion_matrix.png`, `real_vs_ai_bars.png`, `results_overview.png`, accuracy by model plots. |
-| `results.csv` | Sec 5 | Main classification results aggregated across all websites. |
-| `results.jsonl` | | Same data in JSONL format with full metadata per image. |
-
-### `spai/` -- SPAI Model (Karageorgiou et al., CVPR 2025)
-
-| Component | Description |
-|-----------|-------------|
-| `models/` | Neural architectures: SID (Spectral Image Detector), MFM (Masked Frequency Modeling), Swin Transformer, ViT backbones, spectral filters, frequency losses. |
-| `data/` | Dataset loaders, readers, data augmentation pipelines, LMDB file storage. |
-| `weights/spai.pth` | Pre-trained checkpoint used for all classifications in this study. |
-| `config.py` | YACS configuration system. |
-| `main_mfm.py` | MFM pre-training entry point. |
+---
 
 ## Installation
 
+### 1. Create conda environment
+
 ```bash
-conda create -n spai python=3.11
-conda activate spai
+conda create -n spai-hf-2 python=3.10
+conda activate spai-hf-2
 conda install pytorch torchvision torchaudio pytorch-cuda=12.4 -c pytorch -c nvidia
+```
+
+### 2. Install dependencies
+
+```bash
 pip install -r requirements.txt
 pip install -r scraping/requirements_scraper.txt
 ```
 
-## Reproducing the Study
+### 3. Install Playwright browsers (needed for JS-heavy websites)
 
 ```bash
-# 1. Scrape images from the 25 websites
-python scraping/run_csv_full_scrape.py --csv data/websites-list.csv --output results/batch_scrape_results/
-
-# 2. Scrape Wayback Machine snapshots (2020-2025)
-python scraping/run_wayback_full_scrape.py --csv data/websites-news-arts.csv --output results/wayback_images_by_year/
-
-# 3. Classify all scraped images with SPAI (threshold = 0.35)
-python tools/classify_crawl_complete.py --crawl-dir results/batch_scrape_results/ --output-dir results/classification_results/ --model-dir . --threshold 0.35
-
-# 4. Classify Wayback Machine images by year
-python tools/classify_wayback_years.py --input-dir results/wayback_images_by_year/ --output-dir results/wayback_classification_results/ --model-dir . --threshold 0.35
-
-# 5. Run zone analysis (H1)
-python analysis/analyze_zone_vs_ai.py --results-dir results/classification_results/
-
-# 6. Run temporal analysis
-python analysis/combine_wayback_results.py --results-dir results/wayback_classification_results/
+playwright install chromium
 ```
 
-On the UAB SLURM cluster, use the `.sh` scripts in `scraping/` and `classification/` instead.
+---
+
+## Input Data
+
+### `data/websites-list.csv`
+
+Contains 25 websites across 5 sectors. Used by the web scraper.
+
+| Sector | Websites |
+|--------|----------|
+| news | La Vanguardia, RTVE, BBC News, Euronews, El Mundo |
+| arts_illustration | Public Domain Review, DeviantArt, Rawpixel, ArtStation, Old Book Illustrations |
+| education | UAB, MIT, Loyola, NDSU, UPC |
+| e_commerce | IKEA, SHEIN, Sotheby's, MediaMarkt, Amazon |
+| tourism_travel | France.fr, Spain.info, VisitBritain, Italia.it, Lonely Planet |
+
+CSV columns: `url`, `sector`, `subsector`, `organization_name`
+
+### `data/websites-news.csv`
+
+Contains only the 5 news websites. Used by the Wayback Machine scraper.
+
+---
+
+## 1. Web Scraping
+
+The scraper collects images from live websites using BeautifulSoup for static HTML and Playwright as fallback for JavaScript-rendered pages.
+
+### What it does
+
+- Crawls pages within the same domain (BFS)
+- Extracts images from `<img>`, `<picture>`, `<source>`, `<amp-img>`, `<video poster>`, `<noscript>`, and CSS `background-image`
+- Supports 15 lazy-loading attributes (`data-src`, `data-original`, `data-bg`, etc.)
+- Picks the highest resolution from `srcset`
+- Scrolls pages automatically in Playwright to trigger lazy/infinite loading
+- Deduplicates via content hash (MD5) + perceptual hash
+- Filters: minimum 80x80px, 3KB, formats JPEG/PNG/WebP/GIF
+- Records metadata per image: URL, HTML tag, parent tag, CSS classes, zone classification
+- Dismisses cookie banners automatically (21 selectors, multiple languages)
+
+### Execution (SLURM cluster)
+
+From the `scraping/` directory:
+
+```bash
+# All 25 websites
+CSV_PATH=data/websites-list.csv \
+BASE_OUTPUT=scrape_results \
+MAX_PAGES=300 \
+MIN_IMAGES_PER_PAGE=150 \
+MAX_IMAGES_PER_SITE=200 \
+DELAY=0.8 \
+sbatch run_scraper_websites_list.sh --use-playwright-fallback --accept-cookies
+```
+
+```bash
+# Single website (e.g. site 3 = BBC News)
+CSV_PATH=data/websites-list.csv \
+BASE_OUTPUT=scrape_results \
+MAX_PAGES=300 \
+MIN_IMAGES_PER_PAGE=150 \
+MAX_IMAGES_PER_SITE=200 \
+DELAY=0.8 \
+CRAWL_SITE=3 \
+sbatch run_scraper_websites_list.sh --use-playwright-fallback --accept-cookies
+```
+
+### Execution (local / without SLURM)
+
+```bash
+python scraping/batch_scraper.py \
+    --csv data/websites-list.csv \
+    --output-dir scrape_results \
+    --max-images 200 \
+    --max-pages 300 \
+    --min-images-per-page 150 \
+    --delay 0.8 \
+    --use-playwright-fallback \
+    --accept-cookies
+```
+
+### Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `CSV_PATH` | `data/websites-list.csv` | CSV with `url` and `organization_name` columns |
+| `BASE_OUTPUT` | `batch_scrape_results` | Output directory |
+| `MAX_PAGES` | 5 | Max pages to crawl per website |
+| `MIN_IMAGES_PER_PAGE` | 0 | Min images before triggering Playwright fallback |
+| `MAX_IMAGES_PER_SITE` | 200 | Max images to download per website |
+| `DELAY` | 1.0 | Delay between requests (seconds) |
+| `CRAWL_SITE` | _(all)_ | 1-based index to scrape only one site |
+| `--use-playwright-fallback` | off | Enable Playwright for JS-heavy sites |
+| `--accept-cookies` | off | Auto-dismiss cookie banners |
+
+### Output structure
+
+```
+scrape_results/run_YYYYMMDD_HHMMSS/
+├── batch_summary.json
+├── sites/
+│   ├── 001_lavanguardia-com__la-vanguardia/
+│   │   ├── images/                    # Downloaded image files
+│   │   └── metadata/
+│   │       └── images_metadata.csv    # Per-image metadata
+│   ├── 002_rtve-es__rtve-noticias/
+│   └── ...
+```
+
+### Metadata columns (`images_metadata.csv`)
+
+| Column | Description |
+|--------|-------------|
+| `filename` | Image filename (MD5 hash + extension) |
+| `image_url` | Source URL of the image |
+| `page_url` | Page where the image was found |
+| `html_tag` | HTML tag (`img`, `source`, `video[poster]`, etc.) |
+| `parent_tag` | Parent HTML element |
+| `classes` | CSS classes of the element and its parent |
+| `element_id` | HTML id attribute |
+| `width`, `height` | Image dimensions in pixels |
+| `file_size` | File size in bytes |
+| `format` | Image format (jpeg, png, webp, gif) |
+| `content_hash` | MD5 hash of the file content |
+| `perceptual_hash` | Perceptual hash for near-duplicate detection |
+| `zone` | Page zone classification (header_nav, hero_banner, article_content, ad_sponsored, etc.) |
+
+---
+
+## 2. Wayback Machine Scraping
+
+Collects historical snapshots of websites from the Internet Archive (2020-2025) using the CDX API.
+
+### Execution (SLURM cluster)
+
+From the `scraping/` directory:
+
+```bash
+# News websites only (2020-2025)
+CSV_PATH=data/websites-news.csv \
+MAX_IMAGES_PER_YEAR=200 \
+MAX_SNAPSHOTS=100 \
+sbatch run_wayback_scraper.sh
+```
+
+### Execution (local)
+
+```bash
+python scraping/run_wayback_full_scrape.py \
+    --csv data/websites-news.csv \
+    --output wayback_output \
+    --start-year 2020 \
+    --end-year 2025 \
+    --max-snapshots-per-year 100 \
+    --max-images-per-year 200
+```
+
+### Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `CSV_PATH` | `data/websites-news-arts.csv` | CSV with `url` column |
+| `OUTPUT_DIR` | `wayback_images_by_year/output` | Output directory |
+| `START_YEAR` | 2020 | First year to query |
+| `END_YEAR` | 2025 | Last year to query |
+| `MAX_SNAPSHOTS` | 5 | Max CDX snapshots to fetch per year |
+| `MAX_IMAGES_PER_YEAR` | 50 | Max images to download per year per site |
+| `DELAY` | 1.5 | Delay between Wayback Machine requests (seconds) |
+| `CRAWL_SITE` | _(all)_ | 1-based index for a single site |
+
+### Output structure
+
+```
+wayback_output/
+├── wayback_summary.json
+└── sites/
+    ├── bbc-co-uk/
+    │   ├── 2020/    # Images from 2020 snapshots
+    │   ├── 2021/
+    │   ├── ...
+    │   ├── 2025/
+    │   └── manifest.csv
+    ├── lavanguardia-com/
+    └── ...
+```
+
+---
+
+## 3. SPAI Classification
+
+The SPAI classifier scores images from 0 (real) to 1 (AI-generated). Threshold: **0.35**.
+
+### Single image
+
+```bash
+python classification/inference.py \
+    --image "/path/to/image.jpg" \
+    --model-dir /home/aaasifar/spai-hf
+```
+
+Output: `{score: 0.82, predicted_label: 1, predicted_label_name: "ai", threshold: 0.5}`
+
+### Classify all scraped images (by sector)
+
+```bash
+python tools/classify_crawl_complete.py \
+    --crawl-dir scrape_results/run_YYYYMMDD_HHMMSS/ \
+    --output-dir classification_results/ \
+    --model-dir /home/aaasifar/spai-hf \
+    --threshold 0.35
+```
+
+### Classify per website
+
+```bash
+python tools/classify_websites_execution.py \
+    --images-dir scrape_results/run_YYYYMMDD_HHMMSS/sites/001_lavanguardia-com__la-vanguardia/images/ \
+    --output-dir classification_results/lavanguardia/ \
+    --model-dir /home/aaasifar/spai-hf \
+    --threshold 0.35
+```
+
+### Classify Wayback Machine images by year
+
+```bash
+python tools/classify_wayback_years.py \
+    --root-dir wayback_output/sites/bbc-co-uk/ \
+    --output-dir wayback_classification/bbc/ \
+    --model-dir /home/aaasifar/spai-hf \
+    --threshold 0.35
+```
+
+### SLURM scripts
+
+```bash
+# Classify all wayback images
+sbatch classification/run_classify_wayback_years.sh
+
+# Classify all scraped website images
+sbatch classification/run_classify_websites_execution.sh
+
+# Full pipeline (scrape + classify + analyze)
+sbatch classification/run_full_classification_pipeline.sh
+```
+
+---
+
+## 4. Analysis
+
+### Zone vs AI rate (chi-squared test)
+
+```bash
+python analysis/analyze_zone_vs_ai.py --results-dir classification_results/
+```
+
+### Format vs AI rate
+
+```bash
+python analysis/analyze_format_vs_ai.py --results-dir classification_results/
+```
+
+### Temporal analysis (Wayback Machine)
+
+```bash
+python analysis/combine_wayback_results.py --results-dir wayback_classification/
+```
+
+### Generate result plots
+
+```bash
+python tools/plot_results_metrics.py --results-dir classification_results/
+```
+
+---
+
+## SLURM Configuration
+
+All SLURM scripts use:
+
+| Setting | Value |
+|---------|-------|
+| Partition | `pg2tfg12` |
+| QoS | `q_pg2tfg12` |
+| CPUs | 2 |
+| Memory | 8G (scraper), 4G (others) |
+| Time limit | 6h (scraper), 4h (others) |
+| Conda env | `spai-hf-2` |
+| Logs | `/home/aaasifar/spai-hf/scraping_logs/` |
+
+---
+
+## File Descriptions
+
+### `scraping/`
+
+| File | Description |
+|------|-------------|
+| `advanced_image_scraper.py` | Main crawler: BS4 + Playwright fallback, 15 lazy-load attributes, auto-scroll, cookie dismissal, zone classification |
+| `wayback_machine.py` | Wayback Machine scraper via CDX API, year-based image collection |
+| `batch_scraper.py` | Batch orchestrator: reads CSV, creates per-site output folders, runs scraper for each site |
+| `run_wayback_full_scrape.py` | Batch orchestrator for Wayback Machine scraping |
+| `run_scraper_websites_list.sh` | SLURM script for batch website scraping |
+| `run_wayback_scraper.sh` | SLURM script for Wayback Machine scraping |
+| `extract_article_content_images.py` | Extracts images from article body content only |
+| `create_ai_images_folder.py` | Collects all AI-classified images into a single folder |
+
+### `classification/`
+
+| File | Description |
+|------|-------------|
+| `inference.py` | SPAI EndpointHandler: scores a single image (URL, path, base64, or PIL) |
+| `infer_web_classifier.py` | Batch classifier for scraped web images with zone/site metadata |
+| `infer_hf_dataset.py` | Evaluates SPAI on Hugging Face datasets (GenAI-Bench) |
+| `eval_balanced_thresholds.py` | Threshold evaluation on balanced datasets, accuracy curves |
+
+### `analysis/`
+
+| File | Description |
+|------|-------------|
+| `analyze_zone_vs_ai.py` | Chi-squared test of zone vs AI classification |
+| `analyze_format_vs_ai.py` | AI rate by image format (JPEG, PNG, WebP) |
+| `combine_wayback_results.py` | Aggregates temporal classification into annual AI rates |
+| `categorize_article_content_images.py` | Categorizes article images by content type |
+
+### `tools/`
+
+| File | Description |
+|------|-------------|
+| `classify_crawl_complete.py` | Runs SPAI on all images from a crawl directory |
+| `classify_wayback_years.py` | Runs SPAI on Wayback Machine images by year |
+| `classify_websites_execution.py` | Per-website classification orchestrator |
+| `plot_results_metrics.py` | Generates result figures (histograms, bars, confusion matrices) |
+| `plot_style.py` | Shared matplotlib styling |
+
+### `spai/`
+
+| Component | Description |
+|-----------|-------------|
+| `models/` | SID (Spectral Image Detector), MFM, Swin/ViT backbones, spectral filters, frequency losses |
+| `data/` | Dataset loaders, augmentation pipelines, LMDB storage |
+| `weights/spai.pth` | Pre-trained checkpoint (CVPR 2025) |
+| `configs/spai.yaml` | Model configuration: ViT-Base, 12 layers, patch size 224, frequency masking radius 16 |
+
+---
 
 ## Citation
 
-```text
+```
 @inproceedings{karageorgiou2025any,
   title={Any-resolution ai-generated image detection by spectral learning},
   author={Karageorgiou, Dimitrios and Papadopoulos, Symeon and Kompatsiaris, Ioannis and Gavves, Efstratios},

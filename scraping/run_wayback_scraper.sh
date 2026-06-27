@@ -44,7 +44,13 @@ PYTHON_BIN="${PYTHON_BIN:-$CONDA_PREFIX/bin/python}"
 # =========================
 
 CSV_PATH="${CSV_PATH:-$TFG_DIR/data/websites-news-arts.csv}"
+if [[ "$CSV_PATH" != /* ]]; then
+  CSV_PATH="$TFG_DIR/$CSV_PATH"
+fi
 OUTPUT_DIR="${OUTPUT_DIR:-$PROJECT_DIR/wayback_images_by_year/output}"
+if [[ "$OUTPUT_DIR" != /* ]]; then
+  OUTPUT_DIR="$TFG_DIR/$OUTPUT_DIR"
+fi
 START_YEAR="${START_YEAR:-2020}"
 END_YEAR="${END_YEAR:-2025}"
 MAX_SNAPSHOTS="${MAX_SNAPSHOTS:-5}"

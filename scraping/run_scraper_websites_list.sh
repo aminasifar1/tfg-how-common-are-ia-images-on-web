@@ -3,8 +3,8 @@
 #SBATCH --partition=pg2tfg12
 #SBATCH --qos=q_pg2tfg12
 #SBATCH --cpus-per-task=2
-#SBATCH --mem=4G
-#SBATCH --time=4:00:00
+#SBATCH --mem=8G
+#SBATCH --time=6:00:00
 #SBATCH --output=/home/aaasifar/spai-hf/scraping_logs/%x_%j.out
 #SBATCH --error=/home/aaasifar/spai-hf/scraping_logs/%x_%j.err
 
@@ -44,7 +44,14 @@ PYTHON_BIN="${PYTHON_BIN:-$CONDA_PREFIX/bin/python}"
 # =========================
 
 CSV_PATH="${CSV_PATH:-$TFG_DIR/data/websites-list.csv}"
+# Resolve relative paths from TFG_DIR
+if [[ "$CSV_PATH" != /* ]]; then
+  CSV_PATH="$TFG_DIR/$CSV_PATH"
+fi
 BASE_OUTPUT="${BASE_OUTPUT:-$PROJECT_DIR/batch_scrape_results}"
+if [[ "$BASE_OUTPUT" != /* ]]; then
+  BASE_OUTPUT="$TFG_DIR/$BASE_OUTPUT"
+fi
 MAX_PAGES="${MAX_PAGES:-5}"
 MIN_IMAGES_PER_PAGE="${MIN_IMAGES_PER_PAGE:-0}"
 MAX_IMAGES_PER_SITE="${MAX_IMAGES_PER_SITE:-200}"

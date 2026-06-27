@@ -2,10 +2,10 @@
 """
 Advanced web image scraper with BeautifulSoup + optional Playwright fallback.
 
-Extracts images from HTML <img>, <picture>, <source> tags and CSS background
-properties.  Filters by size, format and deduplicates via content + perceptual
-hashing.  Stores per-image metadata (HTML tag, parent, CSS classes, zone) for
-downstream zone-level analysis.
+Extracts images from HTML <img>, <picture>, <source>, <video>, <amp-img>,
+<noscript> tags and CSS background properties.  Filters by size, format and
+deduplicates via content + perceptual hashing.  Stores per-image metadata
+(HTML tag, parent, CSS classes, zone) for downstream zone-level analysis.
 
 Usage:
     python advanced_image_scraper.py \
@@ -45,14 +45,36 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
-MIN_WIDTH = 100
-MIN_HEIGHT = 100
-MIN_FILE_SIZE = 5 * 1024  # 5 KB
+VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+MIN_WIDTH = 80
+MIN_HEIGHT = 80
+MIN_FILE_SIZE = 3 * 1024  # 3 KB
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 )
+REQUEST_HEADERS = {
+    "User-Agent": USER_AGENT,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9,es;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "sec-ch-ua": '"Chromium";v="126", "Google Chrome";v="126", "Not-A.Brand";v="8"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+}
+LAZY_ATTRS = [
+    "src", "data-src", "data-lazy-src", "data-original", "data-bg",
+    "data-image", "data-hi-res-src", "data-full-src", "data-thumb",
+    "data-srcset", "data-lazy", "data-url", "data-img-url",
+    "data-poster", "data-bg-src",
+]
+MAX_RETRIES = 2
 
 ZONE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
     ("header_nav", ("header", "navbar", "nav", "topbar", "masthead", "menu")),
@@ -123,13 +145,16 @@ class AdvancedImageScraper:
         self.accept_cookies = accept_cookies
 
         self.session = requests.Session()
-        self.session.headers.update({"User-Agent": USER_AGENT})
+        self.session.headers.update(REQUEST_HEADERS)
 
         self._seen_content_hashes: set[str] = set()
         self._seen_perceptual_hashes: set[str] = set()
+        self._seen_image_urls: set[str] = set()
         self._visited_urls: set[str] = set()
         self._records: list[ImageRecord] = []
+        self._playwright: Any = None
         self._playwright_browser: Any = None
+        self._playwright_ctx: Any = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -152,6 +177,10 @@ class AdvancedImageScraper:
             )
 
             soup = self._fetch_page(url)
+            if soup is None and self.use_playwright:
+                logger.info("  BS4 fetch failed, trying Playwright directly...")
+                soup = self._fetch_page_playwright(url)
+
             if soup is None:
                 continue
 
@@ -187,30 +216,56 @@ class AdvancedImageScraper:
     # ------------------------------------------------------------------
 
     def _fetch_page(self, url: str) -> BeautifulSoup | None:
-        try:
-            resp = self.session.get(url, timeout=15)
-            resp.raise_for_status()
-            return BeautifulSoup(resp.content, "html.parser")
-        except Exception as exc:
-            logger.warning("Failed to fetch %s: %s", url, exc)
-            return None
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                resp = self.session.get(url, timeout=20)
+                resp.raise_for_status()
+                return BeautifulSoup(resp.content, "html.parser")
+            except Exception as exc:
+                if attempt < MAX_RETRIES:
+                    time.sleep(1.5 * (attempt + 1))
+                    continue
+                logger.warning("Failed to fetch %s after %d attempts: %s", url, MAX_RETRIES + 1, exc)
+                return None
 
     def _fetch_page_playwright(self, url: str) -> BeautifulSoup | None:
         try:
             from playwright.sync_api import sync_playwright
 
             if self._playwright_browser is None:
-                pw = sync_playwright().start()
-                self._playwright_browser = pw.chromium.launch(headless=True)
+                self._playwright = sync_playwright().start()
+                self._playwright_browser = self._playwright.chromium.launch(headless=True)
+                self._playwright_ctx = self._playwright_browser.new_context(
+                    user_agent=USER_AGENT,
+                    viewport={"width": 1920, "height": 1080},
+                    locale="en-US",
+                    extra_http_headers={
+                        "Accept-Language": "en-US,en;q=0.9,es;q=0.8",
+                        "sec-ch-ua": REQUEST_HEADERS["sec-ch-ua"],
+                        "sec-ch-ua-mobile": "?0",
+                        "sec-ch-ua-platform": '"Windows"',
+                    },
+                )
 
-            page = self._playwright_browser.new_page()
-            page.set_extra_http_headers({"User-Agent": USER_AGENT})
-            page.goto(url, wait_until="networkidle", timeout=30_000)
+            page = self._playwright_ctx.new_page()
+
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=45_000)
+            except Exception:
+                try:
+                    page.goto(url, wait_until="load", timeout=45_000)
+                except Exception as exc:
+                    logger.warning("Playwright navigation failed for %s: %s", url, exc)
+                    page.close()
+                    return None
 
             if self.accept_cookies:
                 self._dismiss_cookie_banner(page)
 
-            page.wait_for_timeout(2000)
+            page.wait_for_timeout(1500)
+
+            self._scroll_page(page)
+
             html = page.content()
             page.close()
             return BeautifulSoup(html, "html.parser")
@@ -219,18 +274,43 @@ class AdvancedImageScraper:
             return None
 
     @staticmethod
+    def _scroll_page(page: Any, max_scrolls: int = 8) -> None:
+        """Scroll down incrementally to trigger lazy-loading and infinite scroll."""
+        prev_height = 0
+        for _ in range(max_scrolls):
+            page.evaluate("window.scrollBy(0, window.innerHeight * 2)")
+            page.wait_for_timeout(1200)
+            curr_height = page.evaluate("document.body.scrollHeight")
+            if curr_height == prev_height:
+                break
+            prev_height = curr_height
+        page.evaluate("window.scrollTo(0, 0)")
+        page.wait_for_timeout(500)
+
+    @staticmethod
     def _dismiss_cookie_banner(page: Any) -> None:
         selectors = [
             "button:has-text('Accept')",
+            "button:has-text('Accept all')",
+            "button:has-text('Accept All')",
             "button:has-text('Aceptar')",
+            "button:has-text('Aceptar todo')",
             "button:has-text('Acepto')",
             "button:has-text('Agree')",
+            "button:has-text('Allow all')",
             "button:has-text('OK')",
             "button:has-text('Got it')",
+            "button:has-text('I agree')",
+            "button:has-text('Continue')",
+            "button:has-text('Entendido')",
             "[id*='cookie'] button",
             "[class*='cookie'] button",
             "[id*='consent'] button",
             "[class*='consent'] button",
+            "[id*='gdpr'] button",
+            "[class*='gdpr'] button",
+            "[data-testid*='cookie'] button",
+            "[data-testid*='consent'] button",
         ]
         for sel in selectors:
             try:
@@ -243,40 +323,105 @@ class AdvancedImageScraper:
                 continue
 
     def _close_playwright(self) -> None:
+        if self._playwright_ctx is not None:
+            try:
+                self._playwright_ctx.close()
+            except Exception:
+                pass
+            self._playwright_ctx = None
         if self._playwright_browser is not None:
             try:
                 self._playwright_browser.close()
             except Exception:
                 pass
             self._playwright_browser = None
+        if self._playwright is not None:
+            try:
+                self._playwright.stop()
+            except Exception:
+                pass
+            self._playwright = None
 
     # ------------------------------------------------------------------
     # Image extraction
     # ------------------------------------------------------------------
 
     def _extract_images(self, soup: BeautifulSoup, page_url: str) -> None:
-        for tag in soup.find_all(["img", "picture", "source"]):
+        for tag in soup.find_all(["img", "picture", "source", "amp-img"]):
             if len(self._records) >= self.max_images:
                 return
             self._process_tag(tag, page_url)
+
+        for tag in soup.find_all("video"):
+            if len(self._records) >= self.max_images:
+                return
+            poster = tag.get("poster")
+            if poster:
+                self._process_url_directly(poster, tag, page_url, "video[poster]")
+
+        for noscript in soup.find_all("noscript"):
+            if len(self._records) >= self.max_images:
+                return
+            inner = BeautifulSoup(str(noscript), "html.parser")
+            for tag in inner.find_all("img"):
+                if len(self._records) >= self.max_images:
+                    return
+                self._process_tag(tag, page_url, tag_label="noscript>img")
 
         for tag in soup.find_all(style=True):
             if len(self._records) >= self.max_images:
                 return
             self._process_css_background(tag, page_url)
 
-    def _process_tag(self, tag: Tag, page_url: str) -> None:
-        img_url = (
-            tag.get("src")
-            or tag.get("data-src")
-            or tag.get("data-lazy-src")
-            or tag.get("srcset", "").split(",")[0].strip().split(" ")[0]
-        )
+    def _best_srcset_url(self, srcset_val: str) -> str | None:
+        """Pick the highest-resolution URL from a srcset attribute."""
+        if not srcset_val:
+            return None
+        candidates: list[tuple[str, float]] = []
+        for entry in srcset_val.split(","):
+            parts = entry.strip().split()
+            if not parts:
+                continue
+            url = parts[0]
+            width = 1.0
+            if len(parts) >= 2:
+                desc = parts[1].lower()
+                try:
+                    if desc.endswith("w"):
+                        width = float(desc[:-1])
+                    elif desc.endswith("x"):
+                        width = float(desc[:-1]) * 1000
+                except ValueError:
+                    pass
+            candidates.append((url, width))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda c: c[1], reverse=True)
+        return candidates[0][0]
+
+    def _process_tag(self, tag: Tag, page_url: str, tag_label: str | None = None) -> None:
+        img_url = None
+        for attr in LAZY_ATTRS:
+            val = tag.get(attr)
+            if val and isinstance(val, str) and not val.startswith("data:"):
+                if attr in ("srcset", "data-srcset"):
+                    img_url = self._best_srcset_url(val)
+                else:
+                    img_url = val.strip()
+                if img_url:
+                    break
+
+        if not img_url:
+            srcset = tag.get("srcset", "")
+            if srcset:
+                img_url = self._best_srcset_url(srcset)
+
         if not img_url:
             return
         img_url = self._resolve_url(img_url, page_url)
-        if not img_url:
+        if not img_url or img_url in self._seen_image_urls:
             return
+        self._seen_image_urls.add(img_url)
 
         parent = tag.parent
         parent_tag = parent.name if parent else ""
@@ -290,7 +435,29 @@ class AdvancedImageScraper:
         self._download_and_store(
             img_url=img_url,
             page_url=page_url,
-            html_tag=tag.name,
+            html_tag=tag_label or tag.name,
+            parent_tag=parent_tag,
+            classes=classes.strip(),
+            element_id=element_id.strip(),
+        )
+
+    def _process_url_directly(
+        self, url: str, tag: Tag, page_url: str, tag_label: str
+    ) -> None:
+        img_url = self._resolve_url(url, page_url)
+        if not img_url or img_url in self._seen_image_urls:
+            return
+        self._seen_image_urls.add(img_url)
+
+        parent = tag.parent
+        parent_tag = parent.name if parent else ""
+        classes = " ".join(tag.get("class", []))
+        element_id = tag.get("id", "")
+
+        self._download_and_store(
+            img_url=img_url,
+            page_url=page_url,
+            html_tag=tag_label,
             parent_tag=parent_tag,
             classes=classes.strip(),
             element_id=element_id.strip(),
@@ -332,14 +499,25 @@ class AdvancedImageScraper:
         classes: str,
         element_id: str,
     ) -> None:
-        try:
-            resp = self.session.get(img_url, timeout=10)
-            resp.raise_for_status()
-            data = resp.content
-        except Exception:
-            return
+        data = None
+        img_headers = {
+            "User-Agent": USER_AGENT,
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            "Referer": page_url,
+        }
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                resp = self.session.get(img_url, timeout=15, headers=img_headers)
+                resp.raise_for_status()
+                data = resp.content
+                break
+            except Exception:
+                if attempt < MAX_RETRIES:
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
+                return
 
-        if len(data) < MIN_FILE_SIZE:
+        if data is None or len(data) < MIN_FILE_SIZE:
             return
 
         content_hash = hashlib.md5(data).hexdigest()
@@ -358,7 +536,7 @@ class AdvancedImageScraper:
             return
 
         fmt = (img.format or "").lower()
-        ext = {"jpeg": ".jpeg", "png": ".png", "webp": ".webp"}.get(fmt)
+        ext = {"jpeg": ".jpeg", "png": ".png", "webp": ".webp", "gif": ".gif"}.get(fmt)
         if ext is None:
             return
 
