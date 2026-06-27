@@ -1,7 +1,26 @@
 url,sector,subsector,organization_name
 https://www.lavanguardia.com,news,newspaper,La Vanguardia
-https://www.rtve.es/noticias,news,newspaper,RTVE Noticias
+https://www.rtve.es/noticias,news,broadcaster,RTVE Noticias
 https://www.bbc.co.uk/news,news,broadcaster,BBC News
-¡https://publicdomainreview.org/collections,arts_illustration,curated_public_domain,Public Domain Review Collections
+https://www.euronews.com,news,broadcaster,Euronews
+https://www.elmundo.es,news,newspaper,El Mundo
+https://publicdomainreview.org/collections,arts_illustration,curated_public_domain,Public Domain Review Collections
 https://www.deviantart.com,arts_illustration,artist_community,DeviantArt
+https://www.rawpixel.com,arts_illustration,stock_image_library,Rawpixel
+https://www.artstation.com,arts_illustration,artist_community,ArtStation
 https://www.oldbookillustrations.com,arts_illustration,public_domain_illustrations,Old Book Illustrations
+https://www.uab.cat,education,university,Universitat Autònoma de Barcelona
+https://www.mit.edu,education,university,Massachusetts Institute of Technology
+https://www.loyola.edu,education,university,Loyola University Maryland
+https://www.ndsu.edu,education,university,North Dakota State University
+https://www.upc.edu,education,university,Universitat Politècnica de Catalunya
+https://www.ikea.com,e_commerce,furniture_home,IKEA
+https://www.shein.com,e_commerce,fashion,SHEIN
+https://www.sothebysrealty.com,e_commerce,real_estate,Sotheby's International Realty
+https://www.mediamarkt.es,e_commerce,electronics,MediaMarkt
+https://www.amazon.es,e_commerce,marketplace,Amazon
+https://www.france.fr,tourism_travel,destination_marketing,France.fr
+https://www.spain.info,tourism_travel,destination_marketing,Spain.info
+https://www.visitbritain.com,tourism_travel,destination_marketing,VisitBritain
+https://www.italia.it,tourism_travel,destination_marketing,Italia.it
+https://www.lonelyplanet.com,tourism_travel,travel_guide,Lonely Planet
