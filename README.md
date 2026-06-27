@@ -5,7 +5,7 @@
 Amina Aasifar El Ouahabi
 ---
 
-## Context
+## Main Context
 
 This project studies the prevalence of AI-generated images across publicly accessible websites. It combines an automated web scraper, a Wayback Machine historical scraper, and the SPAI spectral classifier to collect and classify images from 25 websites across five sectors: news, arts and illustration, education, e-commerce, and tourism.
 
