@@ -1,4 +1,4 @@
-# How Common Are AI-Generated Images on the Web?
+# AI-generated image prevalence on the web — crawler and classifica-tion pipeline
 ---
 
 ## Main Context
