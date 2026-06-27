@@ -1,5 +1,3 @@
-**TFG en Enginyeria de Dades -- Universitat Autonoma de Barcelona (UAB), 2025/26**
-
 # How Common Are AI-Generated Images on the Web?
 ---
 
